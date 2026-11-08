@@ -1,0 +1,27 @@
+name: PGR CI
+
+# Когда зупускается workflow
+on:
+    push:
+        branches: [main]
+        paths-ignore:
+            - 'site/**'  # Не запускать сборку C++ при изменениях только в сайте
+    pull_request:
+        branches: [main]
+        paths-ignore:
+            - 'site/**'  # Не запускать сборку C++ при изменениях только в сайте
+
+# Задачи, которые нужно выполнить
+jobs:
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+
+    # Скрипт для сборки
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run build script
+        run: .\build\build.bat
+        shell: cmd  # Важно указать cmd, так как запускается .bat файл
