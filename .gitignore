@@ -1,2 +1,17 @@
-build/linux/
-buid/windows/
+# Все каталоги сборки являются временными артефактами.
+# Сохраняем в Git только build/build.bat, а не скомпилированные программы.
+/build/windows/
+/build/linux/
+/build/macos/
+/build/ci/
+/build/local/
+
+# Локальные файлы IDE и редакторов.
+.vs/
+.idea/
+.vscode/
+
+# Ошибочно созданные сборочные каталоги в корне исходников.
+/CMakeFiles/
+/CMakeCache.txt
+/CTestTestfile.cmake

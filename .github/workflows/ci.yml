@@ -1,27 +1,92 @@
-name: PGR CI
+# Непрерывная интеграция PGR_M: сборка и smoke-тест на нескольких платформах.
+# Подробные правила и описание матрицы приведены в docs/CI.md.
+name: PGR_M / CMake CI
 
-# Когда зупускается workflow
+# Для просмотра содержимого репозитория достаточно прав чтения.
+permissions:
+  contents: read
+
+# Проверяем изменения основной ветки и запросы на её изменение.
+# Если изменился только статический сайт, C++ сборка не нужна.
 on:
-    push:
-        branches: [main]
-        paths-ignore:
-            - 'site/**'  # Не запускать сборку C++ при изменениях только в сайте
-    pull_request:
-        branches: [main]
-        paths-ignore:
-            - 'site/**'  # Не запускать сборку C++ при изменениях только в сайте
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'site/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'site/**'
+  # Позволяет вручную перезапустить матрицу на GitHub.
+  workflow_dispatch:
 
-# Задачи, которые нужно выполнить
 jobs:
-  build-windows:
-    name: Build on Windows
-    runs-on: windows-latest
+  platforms:
+    name: ${{ matrix.os }} / ${{ matrix.configuration }} / все модули
+    # Остальные варианты продолжают выполняться, даже если один упал.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Зафиксированные семейства ОС уменьшают неожиданные изменения runners.
+        os: [ubuntu-24.04, windows-2022, macos-15]
+        # Debug и Release дают независимые проверки конфигураций компиляции.
+        configuration: [Debug, Release]
+    runs-on: ${{ matrix.os }}
 
-    # Скрипт для сборки
     steps:
-      - name: Checkout repository
+      - name: Получить исходники
         uses: actions/checkout@v4
 
-      - name: Run build script
-        run: .\build\build.bat
-        shell: cmd  # Важно указать cmd, так как запускается .bat файл
+      - name: Проверить версию CMake
+        run: cmake --version
+
+      - name: Конфигурация CMake
+        # CMAKE_BUILD_TYPE нужен Ninja/Make; Visual Studio выберет --config ниже.
+        run: >-
+          cmake -S . -B build/ci
+          -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}
+          -DPGR_BUILD_CORE=ON
+          -DPGR_BUILD_GUI=ON
+          -DPGR_BUILD_NN=ON
+          -DPGR_BUILD_TESTS=ON
+
+      - name: Скомпилировать приложение
+        run: cmake --build build/ci --config ${{ matrix.configuration }} --parallel 2
+
+      - name: Запустить CTest
+        # --no-tests=error защищает от ложно зелёного CI с пустым набором тестов.
+        run: ctest --test-dir build/ci -C ${{ matrix.configuration }} --output-on-failure --no-tests=error
+
+  independent-modules:
+    name: Linux / Debug / ${{ matrix.profile.name }}
+    # Дополнительная проверка: приложение должно работать без любого модуля.
+    # Различные конфигурации не смешиваются: каждый job — чистый runner.
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - {name: none, core: 'OFF', gui: 'OFF', nn: 'OFF'}
+          - {name: core-only, core: 'ON', gui: 'OFF', nn: 'OFF'}
+          - {name: gui-only, core: 'OFF', gui: 'ON', nn: 'OFF'}
+          - {name: nn-only, core: 'OFF', gui: 'OFF', nn: 'ON'}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Получить исходники
+        uses: actions/checkout@v4
+
+      - name: Конфигурация выбранного набора модулей
+        # Каждый профиль определяет независимые ON/OFF значения всех модулей.
+        run: >-
+          cmake -S . -B build/ci
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPGR_BUILD_CORE=${{ matrix.profile.core }}
+          -DPGR_BUILD_GUI=${{ matrix.profile.gui }}
+          -DPGR_BUILD_NN=${{ matrix.profile.nn }}
+          -DPGR_BUILD_TESTS=ON
+
+      - name: Собрать выбранную конфигурацию
+        run: cmake --build build/ci --config Debug --parallel 2
+
+      - name: Выполнить тесты
+        run: ctest --test-dir build/ci -C Debug --output-on-failure --no-tests=error
